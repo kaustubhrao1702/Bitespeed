@@ -11,23 +11,38 @@ export class IdentifyService {
   ) {}
 
   async identifyContact(email?: string, phoneNumber?: string) {
-    const contacts = await this.contactRepository.find({ where: [{ email }, { phoneNumber }] });
+    const contacts = await this.contactRepository
+      .createQueryBuilder('contact')
+      .where('contact.email = :email', { email })
+      .orWhere('contact.phoneNumber = :phoneNumber', { phoneNumber })
+      .getMany();
 
     if (!contacts.length) {
-      const newContact = this.contactRepository.create({ email, phoneNumber, linkPrecedence: 'primary' });
-      await this.contactRepository.save(newContact);
+      const newContact = await this.contactRepository.save({
+        email,
+        phoneNumber,
+        linkPrecedence: 'primary',
+      });
       return this.formatResponse(newContact, []);
     }
 
-    const primary = contacts.find(c => c.linkPrecedence === 'primary') || contacts[0];
+    const primary = contacts.find((c) => c.linkPrecedence === 'primary') || contacts[0];
 
-    if (contacts.every(c => c.email !== email || c.phoneNumber !== phoneNumber)) {
-      const secondary = this.contactRepository.create({ email, phoneNumber, linkedId: primary.id, linkPrecedence: 'secondary' });
-      await this.contactRepository.save(secondary);
+    if (contacts.every((c) => c.email !== email || c.phoneNumber !== phoneNumber)) {
+      await this.contactRepository.save({
+        email,
+        phoneNumber,
+        linkedId: primary.id,
+        linkPrecedence: 'secondary',
+      });
     }
 
-    const allContacts = await this.contactRepository.find({ where: { linkedId: primary.id } });
-    return this.formatResponse(primary, allContacts.map(c => c.id).filter(id => id !== primary.id));
+    const allContacts = await this.contactRepository
+      .createQueryBuilder('contact')
+      .where('contact.linkedId = :linkedId OR contact.id = :linkedId', { linkedId: primary.id })
+      .getMany();
+
+    return this.formatResponse(primary, allContacts.map((c) => c.id).filter((id) => id !== primary.id));
   }
 
   private formatResponse(primary: Contact, secondaryIds: number[]) {
